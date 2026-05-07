@@ -156,28 +156,38 @@ def expand_abbreviations(text: str) -> str:
 # Mapping tone format → vPhon flags
 # vPhon convert(word, dialect, chao, eight, nosuper, glottal, phonemic, delimit)
 def _vphon_args(tone_format: str):
-    """Return tuple (chao, eight, nosuper) cho vPhon.convert()."""
-    if tone_format == "pham":
-        # Pham: 1-6, no superscript
+    """Return tuple (chao, eight, nosuper) cho vPhon.convert().
+
+    vPhon tone formats:
+      - "letter" (default, KHUYẾN NGHỊ): output dạng chữ + số "A1, A2, B1, B2, C1, C2, D1, D2".
+                  8 tokens phân biệt syllable mở (A/B/C) và khép (D).
+                  Đây là cái thực tế vPhon trả về khi --nosuper bật mà không có flag khác.
+      - "chao":   Chao tone numbers "33, 24, 32, 21..." (cao độ thực tế, 2-char).
+      - "eight":  số 1-8 (sắc + coda /p t k/ → 7, nặng + coda → 8).
+      - "super":  superscript Unicode mặc định "ᴬ¹, ᴮ²" (không khuyến nghị cho TTS).
+    """
+    if tone_format == "letter":
+        # Output: A1/A2/B1/B2/C1/C2/D1/D2 — 8 tone tokens
         return (False, False, True)
     elif tone_format == "chao":
         return (True, False, True)
-    elif tone_format == "cao":
+    elif tone_format == "eight":
         return (False, True, True)
     elif tone_format == "super":
         return (False, False, False)
     else:
-        raise ValueError(f"Unknown tone_format: {tone_format}")
+        raise ValueError(f"Unknown tone_format: {tone_format!r}. "
+                         f"Use 'letter' (recommended), 'chao', 'eight', or 'super'.")
 
 
-def vi_g2p(text: str, dialect: str = "s", tone_format: str = "pham",
+def vi_g2p(text: str, dialect: str = "s", tone_format: str = "letter",
            syllable_sep: str = " | ", phoneme_sep: str = " ") -> str:
     """Convert Vietnamese text → phoneme sequence.
 
     Args:
         text: input đã được normalize.
         dialect: 's' (Nam), 'n' (Bắc), 'c' (Trung), 'o' (orthographic).
-        tone_format: 'pham' (1-6) khuyến nghị.
+        tone_format: 'letter' (A1-D2) khuyến nghị.
         syllable_sep: ký hiệu phân cách giữa các âm tiết.
         phoneme_sep: ký hiệu phân cách giữa các phoneme trong cùng âm tiết.
 
@@ -225,7 +235,7 @@ def vi_g2p(text: str, dialect: str = "s", tone_format: str = "pham",
 # ============================================================
 
 def vi_text_to_phonemes(text: str, dialect: str = "s",
-                        tone_format: str = "pham") -> str:
+                        tone_format: str = "letter") -> str:
     """Pipeline đầy đủ: raw text → phoneme sequence."""
     text = vi_punc_norm(text)
     text = expand_abbreviations(text)
@@ -255,7 +265,7 @@ if __name__ == "__main__":
         normalized = vi_punc_norm(expand_abbreviations(normalize_numbers(sent.lower())))
         print(f"Norm:   {normalized}")
         try:
-            phonemes = vi_text_to_phonemes(sent, dialect="s", tone_format="pham")
+            phonemes = vi_text_to_phonemes(sent, dialect="s", tone_format="letter")
             print(f"Phon:   {phonemes}")
         except RuntimeError as e:
             print(f"Phon:   [ERROR] {e}")

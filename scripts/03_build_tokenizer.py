@@ -7,7 +7,7 @@ Usage:
     python scripts/03_build_tokenizer.py
         --metadata data/normalized/metadata_norm.csv
         --output src/vi_phoneme_tokenizer.json
-        --dialect s --tone_format pham
+        --dialect s --tone_format letter
 """
 import argparse
 import csv
@@ -31,8 +31,8 @@ def main():
                         default="src/vi_phoneme_tokenizer.json")
     parser.add_argument("--dialect", type=str, default="s",
                         choices=["s", "n", "c", "o"])
-    parser.add_argument("--tone_format", type=str, default="pham",
-                        choices=["pham", "chao", "cao", "super"])
+    parser.add_argument("--tone_format", type=str, default="letter",
+                        choices=["letter", "chao", "eight", "super"])
     parser.add_argument("--min_freq", type=int, default=2,
                         help="Phoneme phải xuất hiện >= n lần để vào vocab")
     parser.add_argument("--max_samples", type=int, default=-1,

@@ -52,13 +52,13 @@ def main():
             print(f"  Norm:   '{normalized}'")
 
             # Test với dialect Nam, Pham tone
-            phon_s_pham = vi_g2p(normalized, dialect="s", tone_format="pham")
-            print(f"  Phon:   '{phon_s_pham}'")
+            phon_s = vi_g2p(normalized, dialect="s", tone_format="letter")
+            print(f"  Phon:   '{phon_s}'")
 
             # So sánh với dialect Bắc để xem khác biệt
-            phon_n_pham = vi_g2p(normalized, dialect="n", tone_format="pham")
-            if phon_s_pham != phon_n_pham:
-                print(f"  [Bắc:   '{phon_n_pham}']")
+            phon_n = vi_g2p(normalized, dialect="n", tone_format="letter")
+            if phon_s != phon_n:
+                print(f"  [Bắc:   '{phon_n}']")
 
             n_ok += 1
         except Exception as e:
@@ -73,7 +73,7 @@ def main():
     all_tokens = set()
     for text, _ in TEST_CASES:
         try:
-            phon = vi_text_to_phonemes(text, dialect="s", tone_format="pham")
+            phon = vi_text_to_phonemes(text, dialect="s", tone_format="letter")
             for tok in phon.split():
                 all_tokens.add(tok)
         except:

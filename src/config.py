@@ -24,7 +24,7 @@ class TrainConfig:
     use_phoneme: bool = True
     tokenizer_path: str = "src/vi_phoneme_tokenizer.json"
     dialect: str = "s"  # 's'=Southern, 'n'=Northern, 'c'=Central
-    tone_format: str = "pham"  # 'pham', 'chao', 'cao', 'super'
+    tone_format: str = "letter"  # 'letter' (A1-D2, KHUYẾN NGHỊ), 'chao', 'eight', 'super'
 
     # ============================================================
     # DATASET
