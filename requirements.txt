@@ -1,0 +1,33 @@
+torch==2.6.0
+torchaudio==2.6.0
+torchvision==0.21.0
+chatterbox-tts==0.1.2
+
+# Training
+transformers>=4.40.0
+peft==0.17.1
+safetensors
+tensorboard
+omegaconf
+
+# Audio
+silero-vad==6.2.0
+librosa==0.11.0
+soundfile==0.13.1
+pyloudnorm
+
+# Vietnamese NLP
+underthesea>=6.8.0
+num2words
+
+# Dataset
+datasets>=2.18.0
+huggingface_hub
+hf_transfer
+
+# Utils
+tqdm
+pandas
+gdown
+ffmpeg-python
+requests

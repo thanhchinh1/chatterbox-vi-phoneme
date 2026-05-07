@@ -1,0 +1,33 @@
+# Data & models
+pretrained_models/
+checkpoints/
+data/wavs/
+data/raw/
+data/normalized/
+*.safetensors
+*.pt
+*.bin
+*.wav
+!speaker_reference/reference.wav
+
+# Logs
+runs/
+*.log
+wandb/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Tools (cloned externally)
+tools/vPhon/
+tools/chatterbox-orig/
