@@ -1,14 +1,3 @@
-"""
-Normalize text trong metadata: số → chữ, viết tắt, lowercase, bỏ ký tự lạ.
-Bonus: filter sample có OOV (từ vPhon không phonetize được, ví dụ tiếng Anh).
-
-Output: metadata_norm.csv với cột thứ 3 là normalized text.
-
-Usage:
-    python scripts/02_normalize_text.py
-    python scripts/02_normalize_text.py --max_oov_ratio 0.05  # cho phép 5% OOV
-    python scripts/02_normalize_text.py --no_filter_oov       # tắt filter
-"""
 import argparse
 import csv
 import os
@@ -19,15 +8,25 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.vi_text_processor import (
-    vi_punc_norm, normalize_numbers, expand_abbreviations, vi_text_to_phonemes
+    vi_punc_norm, normalize_numbers, expand_abbreviations,
+    expand_units_after_number, vi_text_to_phonemes
 )
 
 
 def normalize_full(text: str) -> str:
-    """Apply tất cả normalize steps."""
+    """Apply tất cả normalize steps.
+
+    Order:
+      1. Lowercase
+      2. Expand đơn vị đo sau số (5km → 5 ki lô mét) — TRƯỚC normalize_numbers
+      3. Số → chữ
+      4. Expand viết tắt còn lại
+      5. Bỏ ký tự lạ
+    """
     text = text.lower().strip()
-    text = expand_abbreviations(text)
+    text = expand_units_after_number(text)
     text = normalize_numbers(text)
+    text = expand_abbreviations(text)
     text = vi_punc_norm(text)
     return text
 

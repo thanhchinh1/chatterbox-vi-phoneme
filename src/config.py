@@ -16,7 +16,7 @@ class TrainConfig:
 
     # CHỈNH GIÁ TRỊ NÀY sau khi chạy scripts/03_build_tokenizer.py
     # Lệnh đó sẽ in ra số token chính xác.
-    new_vocab_size: int = 120  # placeholder, sẽ ~80-150 tuỳ dataset
+    new_vocab_size: int = 58  # placeholder, sẽ ~80-150 tuỳ dataset
 
     # ============================================================
     # TOKENIZER (PHONEME)

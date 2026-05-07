@@ -1,15 +1,3 @@
-"""
-Pipeline xử lý text tiếng Việt → phoneme sequence.
-
-Steps:
-  1. vi_punc_norm: chuẩn hoá dấu câu, ký tự lạ
-  2. normalize_numbers: số → chữ (123 → "một trăm hai mươi ba")
-  3. expand_abbreviations: viết tắt → đầy đủ (TP. → "thành phố")
-  4. vi_g2p: grapheme → phoneme bằng vPhon
-
-Output là chuỗi phoneme phân cách bằng space, syllable boundary là " | ".
-Ví dụ: "xin chào" → "s i n 1 | c a w 2"
-"""
 import re
 import sys
 import os
@@ -88,6 +76,48 @@ def _read_number_vi(n: int) -> str:
         return " ".join(_VI_DIGITS[d] for d in str(n))
 
 
+def expand_units_after_number(text: str) -> str:
+    """Expand đơn vị đo đứng cạnh số: "5km" → "5 ki lô mét", "1h" → "1 giờ".
+
+    Phải chạy TRƯỚC normalize_numbers vì cần phát hiện pattern <digit><unit>.
+
+    Xử lý 2 dạng:
+      - Liền: "5km", "1h", "200gb"
+      - Cách space: "5 km", "1 h", "200 gb"
+
+    Multi-char unit (km, kg, gb...) lấy từ _ABBREV.
+    Single-char unit (m, g, h, s, l) lấy từ _SINGLE_CHAR_UNITS (chỉ expand khi sau số).
+    """
+    # Build pattern alternation từ multi-char trong _ABBREV (chỉ phần đơn vị đo)
+    multi_char_units = ["km", "kg", "cm", "mm", "ml", "mg", "gb", "mb", "kb", "tb"]
+    single_char_units = list(_SINGLE_CHAR_UNITS.keys())
+
+    # Sort theo độ dài giảm dần để regex match dài nhất trước (km trước k)
+    all_units_sorted = sorted(multi_char_units + single_char_units, key=len, reverse=True)
+    units_pattern = "|".join(re.escape(u) for u in all_units_sorted)
+
+    # Pattern: số (có thể có dấu phẩy/chấm) + (optional space) + unit + word boundary
+    #  ở cuối quan trọng để không match "10minute" → "10 phút inute"
+    pattern = re.compile(
+        r"(\d+(?:[.,]\d+)?)\s*(" + units_pattern + r")\b",
+        flags=re.IGNORECASE,
+    )
+
+    def repl(m):
+        num = m.group(1)
+        unit = m.group(2).lower()
+        if unit in _SINGLE_CHAR_UNITS:
+            unit_word = _SINGLE_CHAR_UNITS[unit]
+        elif unit in _ABBREV:
+            unit_word = _ABBREV[unit]
+        else:
+            unit_word = unit
+        return f"{num} {unit_word}"
+
+    text = pattern.sub(repl, text)
+    return text
+
+
 def normalize_numbers(text: str) -> str:
     """Chuyển các con số trong text thành chữ.
     Lưu ý: đây là logic đơn giản, chưa xử lý ngày tháng, tiền, đơn vị.
@@ -111,6 +141,7 @@ def normalize_numbers(text: str) -> str:
 # ============================================================
 
 _ABBREV = {
+    # Hành chính
     "tp": "thành phố",
     "tp.": "thành phố",
     "q.": "quận",
@@ -123,6 +154,8 @@ _ABBREV = {
     "tphcm": "thành phố hồ chí minh",
     "hcm": "hồ chí minh",
     "hn": "hà nội",
+
+    # Học vị / chức danh
     "ts.": "tiến sĩ",
     "ths.": "thạc sĩ",
     "gs.": "giáo sư",
@@ -133,6 +166,41 @@ _ABBREV = {
     "b.": "bà",
     "a.": "anh",
     "c.": "chị",
+
+    # Đơn vị đo (multi-char SAFE — không gây ambiguity với tên riêng)
+    "km": "ki lô mét",
+    "kg": "ki lô gam",
+    "cm": "xăng ti mét",
+    "mm": "mi li mét",
+    "ml": "mi li lít",
+    "mg": "mi li gam",
+
+    # Đơn vị tin học
+    "gb": "gi ga bai",
+    "mb": "mê ga bai",
+    "kb": "ki lô bai",
+    "tb": "tê ra bai",
+
+    # Đời sống
+    "tv": "ti vi",
+    "vtv": "vê tê vê",
+    "htv": "hát tê vê",
+
+    # Tiền tệ (thường viết liền số: 1000đ, 5usd)
+    "đ": "đồng",
+    "vnđ": "việt nam đồng",
+    "usd": "đô la mỹ",
+    "eur": "ơ rô",
+}
+
+# Đơn vị/chữ cái 1-ký-tự — CHỈ expand khi đi sau số
+# (tránh expand sai khi là tên riêng như "Anh M")
+_SINGLE_CHAR_UNITS = {
+    "m": "mét",
+    "g": "gam",
+    "l": "lít",
+    "h": "giờ",
+    "s": "giây",
 }
 
 
@@ -236,10 +304,20 @@ def vi_g2p(text: str, dialect: str = "s", tone_format: str = "letter",
 
 def vi_text_to_phonemes(text: str, dialect: str = "s",
                         tone_format: str = "letter") -> str:
-    """Pipeline đầy đủ: raw text → phoneme sequence."""
-    text = vi_punc_norm(text)
-    text = expand_abbreviations(text)
+    """Pipeline đầy đủ: raw text → phoneme sequence.
+
+    Order matters:
+      1. Lowercase + bỏ ký tự lạ
+      2. Expand đơn vị đo SAU SỐ (5km → 5 ki lô mét) — phải làm trước (3)
+      3. Số → chữ (5 → năm)
+      4. Expand viết tắt còn lại (tv, hcm, đ.)
+      5. G2P
+    """
+    text = text.lower().strip()
+    text = expand_units_after_number(text)  # MỚI
     text = normalize_numbers(text)
+    text = expand_abbreviations(text)
+    text = vi_punc_norm(text)
     phonemes = vi_g2p(text, dialect=dialect, tone_format=tone_format)
     return phonemes
 
