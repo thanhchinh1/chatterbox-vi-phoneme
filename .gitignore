@@ -22,7 +22,7 @@ __pycache__/
 .venv/
 venv/
 .env
-
+venv_ch_vi_phoneme/
 # IDE
 .vscode/
 .idea/
