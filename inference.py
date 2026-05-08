@@ -40,6 +40,13 @@ PARAMS = {
 
 def load_finetuned_engine(device):
     """Load Chatterbox engine + thay T3 bằng version fine-tune."""
+    # === Patch perth before importing chatterbox ===
+    import sys, os
+    _repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if _repo_root not in sys.path:
+        sys.path.insert(0, _repo_root)
+    import src.patch_perth  # noqa: F401
+    # ================================================
     from chatterbox.tts import ChatterboxTTS
     from chatterbox.models.t3.t3 import T3
 

@@ -1,17 +1,3 @@
-"""
-Pre-compute speech tokens (S3Gen tokenizer output) + cond embeddings (VoiceEncoder output)
-cho mọi audio trong dataset. Lưu cạnh file .wav để dataloader không phải tính lại mỗi epoch.
-
-Lý do: tính speech tokens và cond emb on-the-fly trong DataLoader làm GPU idle.
-Pre-compute giúp training nhanh hơn 3-5 lần.
-
-Output cạnh mỗi xxx.wav:
-  xxx.speech_tokens.pt   # tensor (T,) int64 - speech token ids
-  xxx.cond.pt            # tensor (D,) float32 - speaker embedding
-
-Usage:
-    python scripts/06_precompute_speech_tokens.py
-"""
 import argparse
 import os
 import csv
@@ -26,6 +12,12 @@ from src.config import TrainConfig
 from src.utils import setup_logger, check_pretrained_models
 
 logger = setup_logger("PrecomputeTokens")
+
+
+def _first_tensor(output):
+    if isinstance(output, tuple):
+        return output[0]
+    return output
 
 
 def main():
@@ -45,7 +37,10 @@ def main():
 
     # Load engine để dùng s3gen + ve
     logger.info("Loading Chatterbox engine...")
-    from chatterbox.tts import ChatterboxTTS
+    # === Patch perth before importing chatterbox ===
+    import src.patch_perth  # noqa: F401
+    # ================================================
+    from chatterbox.tts import ChatterboxTTS, S3_SR
     engine = ChatterboxTTS.from_local(cfg.model_dir, device=args.device)
     engine.s3gen.eval()
     engine.ve.eval()
@@ -84,14 +79,19 @@ def main():
                 if wav.shape[0] > 1:
                     wav = wav.mean(dim=0, keepdim=True)
                 wav = wav.to(args.device)
+                wav_16k = wav
+                if cfg.sample_rate != S3_SR:
+                    wav_16k = torchaudio.functional.resample(wav, cfg.sample_rate, S3_SR)
 
                 # S3Gen tokenizer
-                # API có thể là engine.s3gen.tokenizer(wav) hoặc tương tự — adapt
-                speech_tokens = engine.s3gen.tokenizer(wav).cpu().squeeze(0).long()
+                # tokenizer() returns a tuple: (tokens, lengths)
+                speech_tokens = _first_tensor(engine.s3gen.tokenizer(wav_16k)).cpu().squeeze(0).long()
                 torch.save(speech_tokens, str(tokens_path))
 
-                # Voice encoder
-                cond = engine.ve(wav).cpu().squeeze(0).float()
+                # Voice encoder expects mel features; use the raw-audio helper.
+                cond = torch.from_numpy(
+                    engine.ve.embeds_from_wavs([wav_16k.squeeze(0).cpu().numpy()], sample_rate=S3_SR)
+                ).float()
                 torch.save(cond, str(cond_path))
 
                 n_done += 1

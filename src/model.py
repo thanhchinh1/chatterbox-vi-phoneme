@@ -12,7 +12,9 @@ T3 trong Chatterbox là LM (Llama-based) sinh speech tokens từ:
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Dict, Optional
+from chatterbox.models.t3.modules.cond_enc import T3Cond
 
 
 def resize_t3_text_embedding(
@@ -40,15 +42,16 @@ def resize_t3_text_embedding(
     """
     new_state_dict = new_t3.state_dict()
 
-    # Tên các key text embedding có thể là:
-    #   "text_emb.weight" hoặc "text_token_emb.weight" hoặc "tfmr.wte.weight"
-    # Tuỳ vào kiến trúc T3 cụ thể của Chatterbox version. Cần inspect và adapt.
-    text_emb_keys = [
-        k for k in old_state_dict
-        if "text_emb" in k or "text_token_emb" in k or k.endswith(".wte.weight")
-    ]
+    # Chatterbox 0.1.2: text branch cần resize đồng thời embedding + head.
+    text_resize_keys = [k for k in old_state_dict if k in {"text_emb.weight", "text_head.weight"}]
+    if not text_resize_keys:
+        # Fallback cho các version khác.
+        text_resize_keys = [
+            k for k in old_state_dict
+            if "text_emb" in k or "text_token_emb" in k or k.endswith("text_head.weight")
+        ]
 
-    print(f"[resize_t3] Found text embedding keys: {text_emb_keys}")
+    print(f"[resize_t3] Found text resize keys: {text_resize_keys}")
 
     for key in list(old_state_dict.keys()):
         if key not in new_state_dict:
@@ -61,7 +64,7 @@ def resize_t3_text_embedding(
 
         if old_w.shape == new_w_shape:
             new_state_dict[key] = old_w
-        elif key in text_emb_keys:
+        elif key in text_resize_keys:
             # Đây là text embedding — cần resize
             print(f"[resize_t3] Resizing {key}: {old_w.shape} → {new_w_shape}")
             new_emb = torch.zeros_like(new_state_dict[key])
@@ -101,6 +104,26 @@ class T3TrainerWrapper(nn.Module):
         super().__init__()
         self.t3 = t3_model
 
+    def _build_t3_cond(self, cond_emb: Optional[torch.Tensor], batch_size: int, device: torch.device):
+        if cond_emb is None:
+            speaker_emb = torch.zeros(
+                batch_size,
+                1,
+                self.t3.hp.speaker_embed_size,
+                device=device,
+            )
+        else:
+            speaker_emb = cond_emb.to(device)
+            if speaker_emb.dim() == 2:
+                speaker_emb = speaker_emb.unsqueeze(1)
+
+        emotion_adv = 0.5 * torch.ones(batch_size, 1, 1, device=device)
+        return T3Cond(
+            speaker_emb=speaker_emb,
+            cond_prompt_speech_tokens=None,
+            emotion_adv=emotion_adv,
+        ).to(device=device)
+
     def forward(self, text_tokens=None, speech_tokens=None,
                 text_mask=None, speech_mask=None,
                 text_lengths=None, speech_lengths=None,
@@ -115,25 +138,74 @@ class T3TrainerWrapper(nn.Module):
           3. Compute cross-entropy loss CHỈ trên speech_tokens portion
              (để model học predict speech từ text + prompt)
         """
-        # === IMPLEMENT THEO API T3 CỦA BẠN ===
-        # Một template tham khảo:
+        if text_tokens is None or speech_tokens is None:
+            raise ValueError("text_tokens and speech_tokens are required")
 
-        outputs = self.t3(
+        device = text_tokens.device
+        text_tokens = text_tokens.to(device=device, dtype=torch.long)
+        speech_tokens = speech_tokens.to(device=device, dtype=torch.long)
+
+        if text_lengths is None:
+            if text_mask is not None:
+                text_lengths = text_mask.long().sum(dim=1)
+            else:
+                text_lengths = torch.full(
+                    (text_tokens.size(0),),
+                    text_tokens.size(1),
+                    dtype=torch.long,
+                    device=device,
+                )
+        else:
+            text_lengths = text_lengths.to(device=device, dtype=torch.long)
+
+        if speech_lengths is None:
+            if speech_mask is not None:
+                speech_lengths = speech_mask.long().sum(dim=1)
+            else:
+                speech_lengths = torch.full(
+                    (speech_tokens.size(0),),
+                    speech_tokens.size(1),
+                    dtype=torch.long,
+                    device=device,
+                )
+        else:
+            speech_lengths = speech_lengths.to(device=device, dtype=torch.long)
+
+        t3_cond = self._build_t3_cond(cond_emb, text_tokens.size(0), device)
+        out = self.t3.forward(
+            t3_cond=t3_cond,
             text_tokens=text_tokens,
-            text_mask=text_mask,
+            text_token_lens=text_lengths,
             speech_tokens=speech_tokens,
-            speech_mask=speech_mask,
-            cond_emb=cond_emb,
-            return_loss=True,  # T3 nội bộ tính loss
+            speech_token_lens=speech_lengths,
+            training=True,
         )
 
-        # T3 trả về (logits, loss) hoặc dict — adapt accordingly
-        if isinstance(outputs, dict):
-            return outputs
-        elif isinstance(outputs, tuple) and len(outputs) >= 2:
-            return {"loss": outputs[1], "logits": outputs[0]}
-        else:
-            raise ValueError(f"Unexpected T3 output: {type(outputs)}")
+        ignore_id = -100
+        len_text = text_tokens.size(1)
+        len_speech = speech_tokens.size(1)
+        mask_text = torch.arange(len_text, device=device)[None] >= text_lengths[:, None]
+        mask_speech = torch.arange(len_speech, device=device)[None] >= speech_lengths[:, None]
+        masked_text = text_tokens.masked_fill(mask_text, ignore_id)
+        masked_speech = speech_tokens.masked_fill(mask_speech, ignore_id)
+        loss_text = F.cross_entropy(
+            out.text_logits.permute(0, 2, 1),
+            masked_text,
+            ignore_index=ignore_id,
+        )
+        loss_speech = F.cross_entropy(
+            out.speech_logits.permute(0, 2, 1),
+            masked_speech,
+            ignore_index=ignore_id,
+        )
+        # Ưu tiên speech objective, vẫn log text loss để debug convergence.
+        total_loss = loss_speech
+
+        return {
+            "loss": total_loss,
+            "loss_speech": loss_speech.detach(),
+            "loss_text": loss_text.detach(),
+        }
 
     def gradient_checkpointing_enable(self, **kwargs):
         """Forward to T3 if it supports it."""
