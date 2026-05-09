@@ -23,11 +23,45 @@ cfg = TrainConfig()
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BASE_MODEL_DIR = cfg.model_dir
 OUTPUT_DIR = cfg.output_dir
-FINETUNED_WEIGHTS = os.path.join(OUTPUT_DIR, "t3_vi_phoneme_final.safetensors")
+
+
+def find_latest_checkpoint_weights():
+    """
+    Tìm checkpoint mới nhất hoặc final weights.
+    Priority: checkpoint-XXXX/pytorch_model.bin > t3_vi_phoneme_final.safetensors
+    """
+    if os.path.exists(OUTPUT_DIR):
+        # Tìm tất cả checkpoint
+        checkpoints = [
+            d for d in os.listdir(OUTPUT_DIR)
+            if d.startswith("checkpoint-") and os.path.isdir(os.path.join(OUTPUT_DIR, d))
+        ]
+        
+        if checkpoints:
+            # Sort by checkpoint number
+            checkpoints.sort(key=lambda x: int(x.split("-")[1]))
+            latest_ckpt = checkpoints[-1]
+            ckpt_path = os.path.join(OUTPUT_DIR, latest_ckpt)
+            model_bin = os.path.join(ckpt_path, "pytorch_model.bin")
+            
+            if os.path.exists(model_bin):
+                logger.info(f"🎯 Found latest checkpoint: {latest_ckpt}")
+                return model_bin, "checkpoint"
+    
+    # Fallback: final weights
+    final_weights = os.path.join(OUTPUT_DIR, "t3_vi_phoneme_final.safetensors")
+    if os.path.exists(final_weights):
+        logger.info(f"🎯 Using final weights: {final_weights}")
+        return final_weights, "safetensors"
+    
+    return None, None
+
+
+FINETUNED_WEIGHTS, WEIGHTS_TYPE = find_latest_checkpoint_weights()
 
 # === EDIT NHỮNG GIÁ TRỊ NÀY ===
 TEXT_TO_SAY = "Xin chào, tôi là trợ lý giọng nói tiếng Việt. Hôm nay thời tiết rất đẹp."
-AUDIO_PROMPT = "speaker_reference/reference.wav"
+AUDIO_PROMPT = "speaker_reference/vui-ve.wav"
 OUTPUT_FILE = "output.wav"
 
 PARAMS = {
@@ -36,6 +70,18 @@ PARAMS = {
     "cfg_weight": 0.5,
     "repetition_penalty": 1.2,
 }
+
+
+class ChatterboxPhonemeTokenizerAdapter:
+    """Adapter để `engine.generate()` gọi được tokenizer phoneme tùy chỉnh."""
+
+    def __init__(self, phoneme_tokenizer: PhonemeTokenizer):
+        self.phoneme_tokenizer = phoneme_tokenizer
+
+    def text_to_tokens(self, text: str) -> torch.Tensor:
+        # generate() sẽ tự thêm BOS/EOS, nên không thêm special token ở đây.
+        ids = self.phoneme_tokenizer.encode(text, add_special_tokens=False)
+        return torch.tensor([ids], dtype=torch.long)
 
 
 def load_finetuned_engine(device):
@@ -54,27 +100,48 @@ def load_finetuned_engine(device):
     tts_engine = ChatterboxTTS.from_local(BASE_MODEL_DIR, device="cpu")
 
     # Reconstruct T3 với vocab mới
+    phoneme_tokenizer = PhonemeTokenizer.load(cfg.tokenizer_path)
     logger.info(f"Building new T3 with vocab_size={cfg.new_vocab_size}")
     hp = tts_engine.t3.hp
     hp.text_tokens_dict_size = cfg.new_vocab_size
+    hp.start_text_token = phoneme_tokenizer.bos_id
+    hp.stop_text_token = phoneme_tokenizer.eos_id
     new_t3 = T3(hp=hp)
 
     # Load fine-tuned weights
-    if not os.path.exists(FINETUNED_WEIGHTS):
-        # Có thể là LoRA adapter
+    if not FINETUNED_WEIGHTS:
+        logger.error(f"No fine-tuned weights found in {OUTPUT_DIR}")
+        raise FileNotFoundError(f"No checkpoint or final weights in {OUTPUT_DIR}")
+    
+    # Load dựa trên format
+    if WEIGHTS_TYPE == "checkpoint":
+        # pytorch_model.bin từ checkpoint
+        logger.info(f"Loading checkpoint model: {FINETUNED_WEIGHTS}")
+        try:
+            sd = torch.load(FINETUNED_WEIGHTS, map_location="cpu", weights_only=False)
+            # Bỏ wrapper prefix nếu có
+            if all(k.startswith("model.") for k in sd.keys()):
+                sd = {k[6:]: v for k, v in sd.items()}
+            new_t3.load_state_dict(sd, strict=False)
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}")
+            raise
+    
+    elif WEIGHTS_TYPE == "safetensors":
+        # safetensors final weights
+        logger.info(f"Loading safetensors model: {FINETUNED_WEIGHTS}")
+        sd = load_file(FINETUNED_WEIGHTS, device="cpu")
+        new_t3.load_state_dict(sd, strict=True)
+    
+    # LoRA adapter fallback
+    else:
         lora_path = os.path.join(OUTPUT_DIR, "lora_adapter")
         if os.path.exists(lora_path):
             logger.info(f"Loading LoRA adapter from: {lora_path}")
             from peft import PeftModel
             new_t3 = PeftModel.from_pretrained(new_t3, lora_path)
         else:
-            logger.error(f"No fine-tuned weights found at {FINETUNED_WEIGHTS}")
-            logger.error(f"Or LoRA adapter at {lora_path}")
-            raise FileNotFoundError(FINETUNED_WEIGHTS)
-    else:
-        logger.info(f"Loading fine-tuned T3: {FINETUNED_WEIGHTS}")
-        sd = load_file(FINETUNED_WEIGHTS, device="cpu")
-        new_t3.load_state_dict(sd, strict=True)
+            raise FileNotFoundError(f"No weights found in {OUTPUT_DIR}")
 
     tts_engine.t3 = new_t3
     tts_engine.t3.to(device).eval()
@@ -93,17 +160,18 @@ def generate_sentence(engine, tokenizer, text, prompt_path, **kwargs):
         )
         logger.info(f"  Phoneme: {phoneme_str[:80]}{'...' if len(phoneme_str) > 80 else ''}")
 
-        token_ids = tokenizer.encode(phoneme_str, add_special_tokens=True)
-
-        # API generate có thể nhận text hoặc token_ids — adapt
         wav_tensor = engine.generate(
-            text_token_ids=token_ids,  # hoặc text=phoneme_str tuỳ API
+            text=phoneme_str,
             audio_prompt_path=prompt_path,
             **kwargs,
         )
 
         wav_np = wav_tensor.squeeze().cpu().numpy()
-        wav_trimmed = trim_silence_with_vad(wav_np, engine.sr)
+        try:
+            wav_trimmed = trim_silence_with_vad(wav_np, engine.sr)
+        except Exception as vad_err:
+            logger.warning(f"VAD trim skipped: {vad_err}")
+            wav_trimmed = wav_np
         return engine.sr, wav_trimmed
 
     except Exception as e:
@@ -129,6 +197,7 @@ def main():
 
     engine = load_finetuned_engine(DEVICE)
     tokenizer = PhonemeTokenizer.load(cfg.tokenizer_path)
+    engine.tokenizer = ChatterboxPhonemeTokenizerAdapter(tokenizer)
 
     # Split câu
     sentences = re.split(r"(?<=[.?!])\s+", TEXT_TO_SAY.strip())

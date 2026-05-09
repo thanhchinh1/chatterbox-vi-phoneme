@@ -51,6 +51,27 @@ def build_train_eval_split(dataset, eval_size: int = 500, seed: int = 42):
     return Subset(dataset, train_indices), Subset(dataset, eval_indices)
 
 
+def find_latest_checkpoint(output_dir: str):
+    """Tìm checkpoint mới nhất trong output_dir. Return None nếu không có."""
+    if not os.path.exists(output_dir):
+        return None
+    
+    checkpoints = [
+        d for d in os.listdir(output_dir)
+        if d.startswith("checkpoint-") and os.path.isdir(os.path.join(output_dir, d))
+    ]
+    
+    if not checkpoints:
+        return None
+    
+    # Sort by checkpoint number (checkpoint-1000, checkpoint-2000, etc.)
+    checkpoints.sort(key=lambda x: int(x.split("-")[1]))
+    latest = checkpoints[-1]
+    latest_path = os.path.join(output_dir, latest)
+    logger.info(f"Found latest checkpoint: {latest_path}")
+    return latest_path
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--smoke", action="store_true", help="Run short smoke training")
@@ -172,6 +193,31 @@ def main():
     # 7. WRAPPER + TRAINER
     model_wrapper = T3TrainerWrapper(tts_engine.t3)
 
+    # 7.5 TRY TO RESUME FROM LATEST CHECKPOINT
+    latest_checkpoint = find_latest_checkpoint(cfg.output_dir)
+    resume_from_checkpoint = None
+    if latest_checkpoint and not args.smoke:
+        logger.info(f"Attempting to resume from: {latest_checkpoint}")
+        try:
+            # Load model weights từ checkpoint
+            checkpoint_model_path = os.path.join(latest_checkpoint, "pytorch_model.bin")
+            if os.path.exists(checkpoint_model_path):
+                logger.info(f"Loading model weights from {checkpoint_model_path}...")
+                checkpoint_state = torch.load(checkpoint_model_path, map_location=device, weights_only=False)
+                # Bỏ wrapper prefix nếu có
+                if all(k.startswith("model.") for k in checkpoint_state.keys()):
+                    checkpoint_state = {k[6:]: v for k, v in checkpoint_state.items()}
+                model_wrapper.model.load_state_dict(checkpoint_state, strict=False)
+                logger.info("✓ Loaded model weights from checkpoint")
+                resume_from_checkpoint = latest_checkpoint
+            else:
+                logger.warning(f"No pytorch_model.bin found in {latest_checkpoint}")
+        except Exception as e:
+            logger.error(f"Failed to load checkpoint: {e}")
+            logger.info("Starting from scratch instead")
+    elif args.smoke:
+        logger.info("Smoke mode: skipping checkpoint resume")
+
     # Callbacks
     callbacks = []
     if cfg.is_inference:
@@ -230,7 +276,7 @@ def main():
 
     # 8. TRAIN
     logger.info("Starting training...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
     if eval_ds is not None:
         metrics = trainer.evaluate()
