@@ -166,5 +166,5 @@ Output: `output.wav`
 - Chatterbox: https://github.com/resemble-ai/chatterbox
 - vPhon: https://github.com/kirbyj/vPhon
 - viVoice: https://huggingface.co/datasets/capleaf/viVoice
-- Tham khảo pipeline: https://github.com/thanhchinh1/chatterbox-vn (grapheme-based)
+
 - Fine-tune toolkit gốc: https://github.com/gokhaneraslan/chatterbox-finetuning
