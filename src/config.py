@@ -49,12 +49,12 @@ class TrainConfig:
     # ============================================================
     batch_size: int = 1
     grad_accum: int = 16  # effective batch = 16
-    learning_rate: float = 5e-5  # giảm vì pretrained là English
+    learning_rate: float = 1e-5  # lower LR to reduce over-confidence collapse risk
     num_epochs: int = 10
     warmup_steps: int = 500
 
     save_steps: int = 1000
-    save_total_limit: int = 5
+    save_total_limit: int = 3
     logging_steps: int = 50
 
     output_dir: str = "checkpoints/vi_phoneme"
@@ -97,6 +97,19 @@ class TrainConfig:
     inference_every_steps: int = 1000
     inference_text: str = "Xin chào, đây là mô hình tiếng Việt giọng Nam."
     inference_audio_prompt: str = "speaker_reference/reference.wav"
+
+    # ============================================================
+    # ENTROPY EARLY-STOP GUARD
+    # ============================================================
+    # Check speech-token entropy every N steps. If entropy collapses too low
+    # with near-deterministic top-1 probabilities, stop training early.
+    enable_entropy_guard: bool = True
+    entropy_check_every_steps: int = 1000
+    entropy_guard_samples: int = 32
+    entropy_guard_batch_size: int = 4
+    entropy_stop_threshold: float = 0.05
+    top1_stop_threshold: float = 0.95
+    entropy_guard_min_steps: int = 1000
 
 
 if __name__ == "__main__":

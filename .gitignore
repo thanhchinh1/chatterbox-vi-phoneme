@@ -31,3 +31,6 @@ venv_ch_vi_phoneme/
 # Tools (cloned externally)
 tools/vPhon/
 tools/chatterbox-orig/
+
+debug*.py
+export*.py

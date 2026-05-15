@@ -131,7 +131,11 @@ def load_finetuned_engine(device):
         # safetensors final weights
         logger.info(f"Loading safetensors model: {FINETUNED_WEIGHTS}")
         sd = load_file(FINETUNED_WEIGHTS, device="cpu")
-        new_t3.load_state_dict(sd, strict=True)
+        # Handle "t3." prefix from checkpoint exports
+        if all(k.startswith("t3.") for k in sd.keys()):
+            logger.info("Removing 't3.' prefix from keys...")
+            sd = {k[3:]: v for k, v in sd.items()}
+        new_t3.load_state_dict(sd, strict=False)
     
     # LoRA adapter fallback
     else:

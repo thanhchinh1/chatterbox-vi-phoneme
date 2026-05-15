@@ -20,6 +20,7 @@ import random
 import torch
 from transformers import Trainer, TrainingArguments
 from safetensors.torch import save_file
+from safetensors.torch import load_file
 from torch.utils.data import Subset
 
 from src.config import TrainConfig
@@ -33,6 +34,7 @@ from src.model import (
 from src.phoneme_tokenizer import PhonemeTokenizer
 from src.utils import setup_logger, check_pretrained_models, count_parameters
 from src.inference_callback import InferenceCallback
+from src.entropy_guard_callback import EntropyGuardCallback
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 logger = setup_logger("Train")
@@ -199,19 +201,32 @@ def main():
     if latest_checkpoint and not args.smoke:
         logger.info(f"Attempting to resume from: {latest_checkpoint}")
         try:
-            # Load model weights từ checkpoint
+            # Load model weights từ checkpoint (ưu tiên safetensors)
             checkpoint_model_path = os.path.join(latest_checkpoint, "pytorch_model.bin")
+            checkpoint_safetensors_path = os.path.join(latest_checkpoint, "model.safetensors")
+
+            checkpoint_state = None
             if os.path.exists(checkpoint_model_path):
                 logger.info(f"Loading model weights from {checkpoint_model_path}...")
                 checkpoint_state = torch.load(checkpoint_model_path, map_location=device, weights_only=False)
-                # Bỏ wrapper prefix nếu có
-                if all(k.startswith("model.") for k in checkpoint_state.keys()):
+                if checkpoint_state and all(k.startswith("model.") for k in checkpoint_state.keys()):
                     checkpoint_state = {k[6:]: v for k, v in checkpoint_state.items()}
-                model_wrapper.model.load_state_dict(checkpoint_state, strict=False)
+                elif checkpoint_state and all(k.startswith("t3.") for k in checkpoint_state.keys()):
+                    checkpoint_state = {k[3:]: v for k, v in checkpoint_state.items()}
+            elif os.path.exists(checkpoint_safetensors_path):
+                logger.info(f"Loading model weights from {checkpoint_safetensors_path}...")
+                checkpoint_state = load_file(checkpoint_safetensors_path, device="cpu")
+                if all(k.startswith("t3.") for k in checkpoint_state.keys()):
+                    checkpoint_state = {k[3:]: v for k, v in checkpoint_state.items()}
+            else:
+                logger.warning(
+                    f"No pytorch_model.bin or model.safetensors found in {latest_checkpoint}"
+                )
+
+            if checkpoint_state is not None:
+                model_wrapper.t3.load_state_dict(checkpoint_state, strict=False)
                 logger.info("✓ Loaded model weights from checkpoint")
                 resume_from_checkpoint = latest_checkpoint
-            else:
-                logger.warning(f"No pytorch_model.bin found in {latest_checkpoint}")
         except Exception as e:
             logger.error(f"Failed to load checkpoint: {e}")
             logger.info("Starting from scratch instead")
@@ -222,6 +237,8 @@ def main():
     callbacks = []
     if cfg.is_inference:
         callbacks.append(InferenceCallback(cfg, tts_engine_ref=tts_engine))
+    if cfg.enable_entropy_guard and not args.smoke:
+        callbacks.append(EntropyGuardCallback(cfg, train_ds))
 
     # Training args
     train_batch_size = cfg.batch_size
@@ -249,7 +266,7 @@ def main():
         warmup_steps=cfg.warmup_steps,
         save_strategy="steps",
         save_steps=train_save_steps,
-        save_total_limit=1,
+        save_total_limit=cfg.save_total_limit,
         logging_strategy="steps",
         logging_steps=train_logging_steps,
         remove_unused_columns=False,
@@ -263,6 +280,7 @@ def main():
         evaluation_strategy=("steps" if eval_ds is not None else "no"),
         eval_steps=(train_save_steps if eval_ds is not None else None),
         load_best_model_at_end=False,  # Rely on save_total_limit=1 instead
+        save_safetensors=False,  # Use PyTorch format due to Perth watermark tensor aliases
     )
 
     trainer = Trainer(
@@ -296,15 +314,30 @@ def main():
     # 9. SAVE FINAL MODEL
     logger.info("Training complete. Saving final model...")
     os.makedirs(cfg.output_dir, exist_ok=True)
-    final_path = os.path.join(cfg.output_dir, "t3_vi_phoneme_final.safetensors")
+    final_path = os.path.join(cfg.output_dir, "pytorch_model.bin")
 
     # Nếu dùng LoRA, save adapter; nếu không, save full state_dict
     if cfg.use_lora:
         tts_engine.t3.save_pretrained(os.path.join(cfg.output_dir, "lora_adapter"))
         logger.info(f"LoRA adapter saved to: {cfg.output_dir}/lora_adapter")
     else:
-        save_file(tts_engine.t3.state_dict(), final_path)
-        logger.info(f"Full T3 saved to: {final_path}")
+        # Save final model in PyTorch format to avoid safetensors shared-tensor errors
+        try:
+            torch.save(tts_engine.t3.state_dict(), final_path)
+            logger.info(f"Full T3 saved to: {final_path}")
+        except Exception:
+            # Fallback: try deepcopying tensors to break aliasing, then save with safetensors
+            import copy as _copy
+            logger.warning("torch.save failed; attempting deepcopy fallback then safetensors save")
+            sd_copy = {k: v.clone().cpu() for k, v in tts_engine.t3.state_dict().items()}
+            try:
+                from safetensors.torch import save_file as _save_file
+
+                safepath = os.path.join(cfg.output_dir, "t3_vi_phoneme_final.safetensors")
+                _save_file(sd_copy, safepath)
+                logger.info(f"Full T3 saved to: {safepath}")
+            except Exception as e:
+                logger.error(f"Final model save failed: {e}")
 
 
 if __name__ == "__main__":
