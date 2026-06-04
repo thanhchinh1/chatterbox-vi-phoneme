@@ -45,6 +45,13 @@ def download_file(url, dest_path):
         print(f"[ERROR] {url}: {e}")
         sys.exit(1)
 
+    # Validate downloaded file
+    if os.path.getsize(dest_path) < 1024:
+        print(f"[WARN] Downloaded file is very small ({os.path.getsize(dest_path)} bytes).")
+        print(f"  URL may be wrong or file not found on HuggingFace.")
+        print(f"  Check: {url}")
+        print(f"  Try downloading manually from: https://huggingface.co/ResembleAI/chatterbox")
+
 
 def main():
     print("=" * 60)

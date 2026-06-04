@@ -137,7 +137,7 @@ def normalize_numbers(text: str) -> str:
 
 
 # ============================================================
-# 3. ABBREVIATIONS
+# 3. ABBREVIATIONS  (Định nghĩa TRƯỚC expand_units_after_number)
 # ============================================================
 
 _ABBREV = {
@@ -186,7 +186,7 @@ _ABBREV = {
     "vtv": "vê tê vê",
     "htv": "hát tê vê",
 
-    # Tiền tệ (thường viết liền số: 1000đ, 5usd)
+    # Tiền tệ
     "đ": "đồng",
     "vnđ": "việt nam đồng",
     "usd": "đô la mỹ",
@@ -194,7 +194,6 @@ _ABBREV = {
 }
 
 # Đơn vị/chữ cái 1-ký-tự — CHỈ expand khi đi sau số
-# (tránh expand sai khi là tên riêng như "Anh M")
 _SINGLE_CHAR_UNITS = {
     "m": "mét",
     "g": "gam",
@@ -304,17 +303,18 @@ def vi_g2p(text: str, dialect: str = "s", tone_format: str = "letter",
 
 def vi_text_to_phonemes(text: str, dialect: str = "s",
                         tone_format: str = "letter") -> str:
-    """Pipeline đầy đủ: raw text → phoneme sequence.
+    r"""Pipeline đầy đủ: raw text → phoneme sequence.
 
     Order matters:
-      1. Lowercase + bỏ ký tự lạ
-      2. Expand đơn vị đo SAU SỐ (5km → 5 ki lô mét) — phải làm trước (3)
-      3. Số → chữ (5 → năm)
-      4. Expand viết tắt còn lại (tv, hcm, đ.)
-      5. G2P
+    1. Lowercase + bỏ ký tự lạ
+    2. Expand đơn vị đo SAU SỐ (5km → "5 ki lô mét") — phải làm TRƯỚC (3)
+    vì normalize_numbers dùng regex r'\d+' sẽ match số còn lại sau khi expand
+    3. Số → chữ ("5 ki lô mét" → "năm ki lô mét")
+    4. Expand viết tắt còn lại (tv, hcm, đ.)
+    5. G2P
     """
     text = text.lower().strip()
-    text = expand_units_after_number(text)  # MỚI
+    text = expand_units_after_number(text)
     text = normalize_numbers(text)
     text = expand_abbreviations(text)
     text = vi_punc_norm(text)

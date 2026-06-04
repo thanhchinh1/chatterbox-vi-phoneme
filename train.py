@@ -5,12 +5,14 @@ Usage:
     python train.py
 
 Trước khi chạy, đảm bảo:
-  1. python setup.py                              # tải pretrained
-  2. git clone https://github.com/kirbyj/vPhon.git tools/vPhon
-  3. python scripts/01_download_dataset.py        # tải viVoice
-  4. python scripts/05_prepare_dataset.py         # convert sang LJSpeech
-  5. python scripts/03_build_tokenizer.py         # build phoneme vocab
-  6. Update src/config.py:new_vocab_size cho khớp tokenizer
+1. python setup.py                              # tải pretrained models
+2. git clone https://github.com/kirbyj/vPhon.git tools/vPhon
+3. python scripts/01_download_dataset.py        # tải viVoice
+4. python scripts/02_normalize_text.py          # normalize + OOV filter
+5. python scripts/05_prepare_dataset.py         # convert sang LJSpeech format
+6. python scripts/03_build_tokenizer.py         # build phoneme vocab
+7. python scripts/06_precompute_speech_tokens.py # BẮT BUỘC: precompute speech tokens
+8. Update src/config.py: new_vocab_size cho khớp tokenizer
 """
 import os
 import sys
@@ -180,6 +182,26 @@ def main():
     # 6. DATASET
     logger.info("Loading dataset...")
     full_ds = ChatterboxViDataset(cfg, tts_engine=None)  # speech tokens precomputed
+
+# Validate speech tokens exist before proceeding
+import glob
+total_samples = len(full_ds)
+tokens_files = glob.glob(os.path.join(cfg.wavs_dir, "*.speech_tokens.pt"))
+n_tokens = len(tokens_files)
+logger.info(f"Speech tokens precomputed: {n_tokens}/{total_samples} samples")
+if n_tokens == 0:
+    logger.error(
+        "No .speech_tokens.pt files found! "
+        "Run: python scripts/06_precompute_speech_tokens.py --device cuda"
+    )
+    sys.exit(1)
+elif n_tokens < total_samples * 0.5:
+    logger.warning(
+        f"Only {n_tokens}/{total_samples} speech tokens precomputed. "
+        "Training may fail on samples without tokens. "
+        "Run: python scripts/06_precompute_speech_tokens.py --skip_existing"
+    )
+
     train_ds, eval_ds = build_train_eval_split(full_ds, eval_size=500 if not args.smoke else 20)
     if args.smoke:
         n_subset = min(args.smoke_samples, len(train_ds))

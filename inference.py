@@ -61,7 +61,7 @@ FINETUNED_WEIGHTS, WEIGHTS_TYPE = find_latest_checkpoint_weights()
 
 # === EDIT NHỮNG GIÁ TRỊ NÀY ===
 TEXT_TO_SAY = "Xin chào, tôi là trợ lý giọng nói tiếng Việt. Hôm nay thời tiết rất đẹp."
-AUDIO_PROMPT = "speaker_reference/vui-ve.wav"
+AUDIO_PROMPT = "speaker_reference/reference.wav"
 OUTPUT_FILE = "output.wav"
 
 PARAMS = {

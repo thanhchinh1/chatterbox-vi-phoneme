@@ -1,13 +1,12 @@
-"""
-Dataset cho Chatterbox Vietnamese fine-tuning.
+"""Dataset cho Chatterbox Vietnamese fine-tuning.
 
 Format LJSpeech mong đợi:
-  data/
-    metadata.csv         # filename|raw_text|normalized_text (3 cột, separator='|')
-    wavs/
-      000001.wav
-      000002.wav
-      ...
+data/
+metadata.csv # filename|raw_text|normalized_text (3 cột, separator='|')
+wavs/
+000001.wav
+000002.wav
+...
 
 Dataset này preprocess on-the-fly: text → phoneme → token IDs.
 Audio đã được resample sang 24kHz từ trước (xem scripts/05_prepare_dataset.py).
@@ -18,7 +17,7 @@ import torch
 import torchaudio
 import numpy as np
 from torch.utils.data import Dataset
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 
 from src.phoneme_tokenizer import PhonemeTokenizer
 from src.vi_text_processor import vi_text_to_phonemes
@@ -32,8 +31,8 @@ class ChatterboxViDataset(Dataset):
         Args:
             cfg: TrainConfig instance.
             tts_engine: optional ChatterboxTTS engine để compute speech tokens
-                       on-the-fly. Nếu None, expect data đã được preprocessed
-                       (có file .pt chứa speech tokens cạnh mỗi .wav).
+            on-the-fly. Nếu None, expect data đã được preprocessed
+            (có file .pt chứa speech tokens cạnh mỗi .wav).
         """
         self.cfg = cfg
         self.tts_engine = tts_engine
@@ -50,7 +49,6 @@ class ChatterboxViDataset(Dataset):
             for row in reader:
                 if len(row) < 2:
                     continue
-                # filename | raw_text | (optional) normalized_text
                 fn = row[0].strip()
                 raw = row[1].strip()
                 norm = row[2].strip() if len(row) > 2 else raw
@@ -83,8 +81,7 @@ class ChatterboxViDataset(Dataset):
             text_token_ids = self.tokenizer.encode(phoneme_str, add_special_tokens=True)
         except Exception as e:
             print(f"[Dataset] G2P error on '{entry['norm_text']}': {e}")
-            # Return next sample (đệ quy đơn giản)
-            return self[(idx + 1) % len(self)]
+            return None
 
         # === Audio ===
         wav, sr = torchaudio.load(entry["wav_path"])
@@ -96,16 +93,14 @@ class ChatterboxViDataset(Dataset):
         wav = wav.squeeze(0)
         duration = wav.shape[0] / self.cfg.sample_rate
 
-        # Filter out by length
         if duration < self.cfg.min_audio_length or duration > self.cfg.max_audio_length:
-            return self[(idx + 1) % len(self)]
+            return None
 
         # === Speech tokens (precomputed hoặc compute on-the-fly) ===
         speech_tokens_path = entry["wav_path"].replace(".wav", ".speech_tokens.pt")
         if os.path.exists(speech_tokens_path):
             speech_tokens = torch.load(speech_tokens_path, weights_only=True)
         elif self.tts_engine is not None:
-            # Compute on-the-fly (chậm, nên preprocess trước)
             speech_tokens = self._compute_speech_tokens(wav)
         else:
             raise FileNotFoundError(
@@ -132,7 +127,6 @@ class ChatterboxViDataset(Dataset):
     def _compute_speech_tokens(self, wav):
         """Compute speech tokens dùng S3Gen tokenizer (on-the-fly)."""
         with torch.no_grad():
-            # API có thể khác tuỳ version Chatterbox, sửa cho khớp
             tokens = self.tts_engine.s3gen.tokenize(wav.unsqueeze(0))
         return tokens.squeeze(0)
 
@@ -151,11 +145,14 @@ def data_collator_phoneme(batch: List[Dict]) -> Dict:
     """Pad text + speech tokens ở batch level.
 
     Returns dict tương thích với T3 forward signature.
+    When all samples are None (e.g. all G2P errors), returns an empty
+    batch that the Trainer will skip gracefully.
     """
     # Filter None (sample bị skip)
     batch = [b for b in batch if b is not None]
     if len(batch) == 0:
-        return {}
+        return {"text_tokens": torch.zeros(0, dtype=torch.long),
+                "speech_tokens": torch.zeros(0, dtype=torch.long)}
 
     text_lens = [len(b["text_tokens"]) for b in batch]
     speech_lens = [len(b["speech_tokens"]) for b in batch]

@@ -91,6 +91,7 @@ python setup.py
 ```
 
 Sẽ tải các file sau về `pretrained_models/`:
+
 - `ve.safetensors` — Voice Encoder
 - `t3_cfg.safetensors` — T3 (sẽ fine-tune)
 - `s3gen.safetensors` — S3Gen decoder
@@ -135,6 +136,7 @@ python train.py
 ```
 
 Monitor:
+
 ```bash
 tensorboard --logdir checkpoints/runs
 nvidia-smi -l 5
@@ -166,5 +168,4 @@ Output: `output.wav`
 - Chatterbox: https://github.com/resemble-ai/chatterbox
 - vPhon: https://github.com/kirbyj/vPhon
 - viVoice: https://huggingface.co/datasets/capleaf/viVoice
-
 - Fine-tune toolkit gốc: https://github.com/gokhaneraslan/chatterbox-finetuning

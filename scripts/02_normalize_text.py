@@ -42,7 +42,7 @@ def main():
     parser.add_argument("--dialect", type=str, default="s",
                         choices=["s", "n", "c"])
     parser.add_argument("--tone_format", type=str, default="letter")
-    parser.add_argument("--max_oov_ratio", type=float, default=0.0,
+    parser.add_argument("--max_oov_ratio", type=float, default=0.05,
                         help="Tỉ lệ OOV/total tokens cho phép (0 = strict)")
     parser.add_argument("--no_filter_oov", action="store_true",
                         help="Tắt OOV filter, giữ mọi sample")
@@ -147,8 +147,7 @@ def main():
 
     if n_skip_oov > n_kept * 0.3:
         print(f"\n⚠️  CẢNH BÁO: skip OOV nhiều ({n_skip_oov} samples).")
-        print(f"   Cân nhắc: --max_oov_ratio 0.05 (cho phép 5% OOV)")
-        print(f"   Hoặc:     --no_filter_oov (giữ mọi sample)")
+        print(f"   Tăng --max_oov_ratio (vd: 0.10) hoặc dùng --no_filter_oov")
 
 
 if __name__ == "__main__":
