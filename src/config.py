@@ -46,9 +46,9 @@ class TrainConfig:
     # ============================================================
     batch_size: int = 1
     grad_accum: int = 16
-    learning_rate: float = 1e-5
+    learning_rate: float = 5e-6
     num_epochs: int = 10
-    warmup_steps: int = 500
+    warmup_steps: int = 200
 
     save_steps: int = 1000
     save_total_limit: int = 3
@@ -99,8 +99,8 @@ class TrainConfig:
     entropy_check_every_steps: int = 1000
     entropy_guard_samples: int = 32
     entropy_guard_batch_size: int = 4
-    entropy_stop_threshold: float = 0.05
-    top1_stop_threshold: float = 0.95
+    entropy_stop_threshold: float = 0.02
+    top1_stop_threshold: float = 0.98
     entropy_guard_min_steps: int = 1000
 
     def __post_init__(self):

@@ -183,24 +183,24 @@ def main():
     logger.info("Loading dataset...")
     full_ds = ChatterboxViDataset(cfg, tts_engine=None)  # speech tokens precomputed
 
-# Validate speech tokens exist before proceeding
-import glob
-total_samples = len(full_ds)
-tokens_files = glob.glob(os.path.join(cfg.wavs_dir, "*.speech_tokens.pt"))
-n_tokens = len(tokens_files)
-logger.info(f"Speech tokens precomputed: {n_tokens}/{total_samples} samples")
-if n_tokens == 0:
-    logger.error(
-        "No .speech_tokens.pt files found! "
-        "Run: python scripts/06_precompute_speech_tokens.py --device cuda"
-    )
-    sys.exit(1)
-elif n_tokens < total_samples * 0.5:
-    logger.warning(
-        f"Only {n_tokens}/{total_samples} speech tokens precomputed. "
-        "Training may fail on samples without tokens. "
-        "Run: python scripts/06_precompute_speech_tokens.py --skip_existing"
-    )
+    # Validate speech tokens exist before proceeding
+    import glob
+    total_samples = len(full_ds)
+    tokens_files = glob.glob(os.path.join(cfg.wavs_dir, "*.speech_tokens.pt"))
+    n_tokens = len(tokens_files)
+    logger.info(f"Speech tokens precomputed: {n_tokens}/{total_samples} samples")
+    if n_tokens == 0:
+        logger.error(
+            "No .speech_tokens.pt files found! "
+            "Run: python scripts/06_precompute_speech_tokens.py --device cuda"
+        )
+        sys.exit(1)
+    elif n_tokens < total_samples * 0.5:
+        logger.warning(
+            f"Only {n_tokens}/{total_samples} speech tokens precomputed. "
+            "Training may fail on samples without tokens. "
+            "Run: python scripts/06_precompute_speech_tokens.py --skip_existing"
+        )
 
     train_ds, eval_ds = build_train_eval_split(full_ds, eval_size=500 if not args.smoke else 20)
     if args.smoke:
