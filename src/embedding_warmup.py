@@ -32,35 +32,48 @@ from typing import Dict, List, Optional
 DEFAULT_IPA_TO_GRAPHEME = {
     # ===== Vowels =====
     "a": ["a"],
+    "aː": ["a"],
     "ă": ["ă", "a"],
     "ə": ["ơ", "â"],
+    "əː": ["ơ", "â"],
     "ɤ": ["ơ"],
     "ɛ": ["e"],
+    "ɛː": ["ê", "e"],
     "e": ["ê", "e"],
+    "eː": ["ê", "e"],
     "i": ["i", "y"],
+    "iː": ["i", "y"],
     "ɔ": ["o"],
+    "ɔː": ["ô", "o"],
     "o": ["ô", "o"],
+    "oː": ["ô", "o"],
     "u": ["u"],
+    "uː": ["u"],
     "ɯ": ["ư"],
+    "ɨ": ["ư"],
+    "ɨː": ["ư"],
 
     # ===== Diphthongs =====
-    "iə": ["i", "ê", "a"],
-    "uə": ["u", "ô", "a"],
-    "ɯə": ["ư", "ơ", "a"],
+    "iə": ["iê", "ia"],
+    "uə": ["ua", "uâ"],
+    "ɨə": ["ưa", "ưa"],
 
     # ===== Consonants - Onsets =====
     "b": ["b"],
+    "ɓ": ["b"],
     "m": ["m"],
     "f": ["ph", "f"],
     "v": ["v"],
-    "w": ["o", "u"],   # /w/ thường viết là 'o' hoặc 'u' đứng đầu
+    "w": ["o", "u"],
     "t": ["t"],
     "tʰ": ["th"],
-    "d": ["đ", "d"],
+    "d": ["d", "đ"],
+    "ɗ": ["đ", "d"],
     "n": ["n"],
     "s": ["x", "s"],
     "z": ["d", "gi"],
     "l": ["l"],
+    "r": ["r"],
     "ʈ": ["tr"],
     "ʂ": ["s"],
     "ʐ": ["r"],
@@ -70,28 +83,42 @@ DEFAULT_IPA_TO_GRAPHEME = {
     "k": ["k", "c", "q"],
     "x": ["kh"],
     "ɣ": ["g", "gh"],
+    "ɡ": ["g", "gh"],
     "ŋ": ["ng", "ngh"],
+    "ŋ͡m": ["ng", "m"],
     "h": ["h"],
-    "ʔ": ["a"],   # glottal stop, không có grapheme
+    "ʔ": ["a"],
 
-    # ===== Codas =====
+    # ===== Codas / glide-like tokens =====
+    "p": ["p"],
     "p̚": ["p"],
     "t̚": ["t"],
     "k̚": ["c", "k"],
+    "k͡p": ["c", "k", "p"],
     "j̆": ["i", "y"],
     "w̆": ["u", "o"],
 
-    # ===== Tones (Pham 1-6) =====
+    # ===== Tones (current vocab uses letter tones) =====
     # Không có tương đương grapheme → để rỗng, sẽ init nhỏ random
-    "1": [],   # ngang
-    "2": [],   # huyền
-    "3": [],   # hỏi
-    "4": [],   # ngã
-    "5": [],   # sắc
-    "6": [],   # nặng
+    "A1": [],
+    "A2": [],
+    "B1": [],
+    "B2": [],
+    "C1": [],
+    "C2": [],
+    "D1": [],
+    "D2": [],
+
+    # Legacy aliases kept for compatibility with older configs
+    "1": [],
+    "2": [],
+    "3": [],
+    "4": [],
+    "5": [],
+    "6": [],
 
     # ===== Special =====
-    "|": [" "],         # syllable boundary ≈ space
+    "|": [" "],
     "<sil>": [],
 }
 
@@ -136,6 +163,11 @@ def warmup_embedding(
             continue
 
         candidates = ipa_to_grapheme.get(phoneme, None)
+
+        if (candidates is None or len(candidates) == 0) and phoneme.startswith("[") and phoneme.endswith("]"):
+            inner_text = phoneme[1:-1].strip()
+            if inner_text:
+                candidates = [inner_text]
 
         if candidates is None or len(candidates) == 0:
             # Không có mapping → random nhỏ matching scale

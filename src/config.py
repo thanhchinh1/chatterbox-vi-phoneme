@@ -5,7 +5,7 @@ import warnings
 from dataclasses import dataclass, field
 from typing import Optional
 
-_PLACEHOLDER_VOCAB_SIZE = 58
+_PLACEHOLDER_VOCAB_SIZE = 3605
 
 
 @dataclass
@@ -16,7 +16,7 @@ class TrainConfig:
     is_turbo: bool = False
     model_dir: str = "pretrained_models"
 
-    new_vocab_size: int = _PLACEHOLDER_VOCAB_SIZE
+    new_vocab_size: int = 3605
 
     # ============================================================
     # TOKENIZER (PHONEME)
@@ -47,7 +47,7 @@ class TrainConfig:
     batch_size: int = 1
     grad_accum: int = 16
     learning_rate: float = 5e-6
-    num_epochs: int = 10
+    num_epochs: int = 100
     warmup_steps: int = 200
 
     save_steps: int = 1000
@@ -95,7 +95,7 @@ class TrainConfig:
     # ============================================================
     # ENTROPY EARLY-STOP GUARD
     # ============================================================
-    enable_entropy_guard: bool = True
+    enable_entropy_guard: bool = False
     entropy_check_every_steps: int = 1000
     entropy_guard_samples: int = 32
     entropy_guard_batch_size: int = 4
